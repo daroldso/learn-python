@@ -1,0 +1,37 @@
+[project]
+name = "learn-python"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
+    "ruff>=0.16.4",
+]
+
+# ─── ruff: linter + formatter (your eslint + prettier, in one Rust binary) ───
+[tool.ruff]
+line-length = 88          # the Black/PEP8 default. Bikeshedding ends here.
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors    — PEP 8 layout
+    "F",   # pyflakes              — unused imports/vars, undefined names
+    "I",   # isort                 — import ordering, auto-fixable
+    "UP",  # pyupgrade             — nudges you to modern 3.13 syntax
+    "B",   # flake8-bugbear        — real bug patterns (incl. the mutable-default trap)
+    "SIM", # flake8-simplify       — teaches idiomatic rewrites
+]
+
+# ─── pyright: the type checker. Nothing in Python checks types until you run this. ───
+[tool.pyright]
+include = ["drills", "habits", "tests"]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"   # raised to "strict" in Phase 2
+
+# ─── pytest ───
+[tool.pytest.ini_options]
+testpaths = ["tests"]
