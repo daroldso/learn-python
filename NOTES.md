@@ -1,7 +1,8 @@
 # Python Notes
 
-Reference for reloading the mental model. Written during Phases 0–1, building the habit
-tracker. Contrasts are with JS/TS throughout, because that's the intuition being retrained.
+> Reference for reloading the mental model. Phase 0–1 drafted with Claude after finishing
+> `habits/streaks.py`; answers marked **(mine)** are ones I reconstructed myself.
+> Format: `>` is the question, prose below is the answer.
 
 ---
 
@@ -9,39 +10,33 @@ tracker. Contrasts are with JS/TS throughout, because that's the intuition being
 
 ### Virtual environments
 
-**Why they exist:** Node resolves an import by walking up the directory tree looking for
-`node_modules`, so isolation is per-project and automatic. Python has no such search — it
-has one global list of import paths (`sys.path`), and `pip install` drops packages into
-whichever interpreter is first on `$PATH`. Two projects needing different versions of the
-same library collide, and the collision can damage the **system Python** that OS tooling
-depends on.
+> Why does Python need `.venv` when Node just has `node_modules`? What does "activating"
+> a venv actually change? Why can `python` and `uv run python` be different programs?
 
-**What a venv actually is:** a directory containing its own `bin/python` and its own
-`site-packages`. It's a fake Python installation. "Activating" it just prepends `.venv/bin`
-to `$PATH` so that `python` resolves *there* instead. That's the entire trick — a `PATH`
-manipulation, not a sandbox.
+**(mine, sharpened)** Activating a venv prepends `.venv/bin` to `PATH`, so the name `python`
+resolves to the venv's interpreter instead of the system one. `uv run` does the same thing
+without activation — it locates `.venv` itself and runs the command inside it.
 
-**Why `uv run` beats activating:** it resolves `.venv` per command and syncs from
-`uv.lock` first, so activation is never needed. If a tutorial says
-`source .venv/bin/activate`, that's the older workflow.
+The deeper reason Python needs this and Node doesn't: **Node resolves imports by walking up
+the directory tree looking for `node_modules`**, so isolation is automatic and per-directory.
+Python has no such search — `import` looks in `sys.path`, which points at *one* global
+`site-packages` belonging to whichever interpreter is running. So by default every project on
+the machine shares one set of installed packages, and two projects needing different versions
+of a library conflict. A venv is a fake Python installation (its own `bin/python`, its own
+`site-packages`) that redirects `sys.path`. It's opt-in isolation bolted on, not built in.
 
-**The consequence that bites:** `python` and `uv run python` are *different programs*.
-Mine are 3.11.5 (Homebrew, no project packages) and 3.13.5 (project). When an import
-mysteriously fails, the first question is always *which interpreter is this?*
-
-```bash
-uv run python -c "import sys; print(sys.executable)"
-```
+Consequence: **"which interpreter am I running?" is always the first debugging question.**
+`uv run python -c "import sys; print(sys.executable)"` answers it.
 
 ### The uv ↔ npm map
 
 | Python | JS equivalent | Where the analogy breaks |
 |---|---|---|
-| `pyproject.toml` | `package.json` | Also holds **tool config** — ruff, pytest, pyright all live here. In JS these'd be separate `.eslintrc` / `jest.config.js` files. |
-| `uv.lock` | `package-lock.json` | Same idea: exact resolved versions, commit it. |
-| `uv run` | `npm run` / `npx` | Syncs the env from the lockfile *before* running. |
-| `.venv/` | `node_modules/` | `.venv` contains a **`python` binary**; `node_modules` doesn't contain `node`. And it's not auto-discovered — resolution is by `$PATH`, not by walking up directories. |
-| `uv add` | `npm install <pkg>` | Updates `pyproject.toml` + lock + installs, in one step. |
+| `pyproject.toml` | `package.json` | Also holds config for ruff/pytest/pyright. It's a language standard (PEP 621), not a tool's private file. |
+| `uv.lock` | `package-lock.json` | Resolves for *all* platforms at once, so the same lock works on macOS and the Linux container. Commit it. |
+| `uv run <cmd>` | `npx <cmd>` | Runs *any* command in the venv, not just scripts declared in the manifest. Re-syncs from the lock first. |
+| `.venv/` | `node_modules/` | Contains a whole Python interpreter, not just packages. And it is **not** auto-discovered — something must put it on `PATH`. |
+| `uv add <pkg>` | `npm install <pkg>` | Updates manifest + lock + installs, in one step. |
 
 ---
 
@@ -51,112 +46,143 @@ uv run python -c "import sys; print(sys.executable)"
 
 ```python
 [] == False   # False
-[] == True    # False   <- the one that surprised me
+[] == True    # False
 bool([])      # False
 ```
 
-Two different questions, and JS blends them together:
+> What question does `==` ask? What question does `bool()` ask? Why does JS answer
+> `true` to `[] == false`?
 
-- **`==` asks "do these compare equal?"** Python does **not** coerce across unrelated
-  types. A list compared to a bool is simply not equal — to *either* one. It's not "neither
-  true nor false"; it's "you asked whether a list equals a boolean, and it doesn't."
-- **`bool(x)` asks "is x truthy?"** — a conversion, defined per type. This is what `if x:`
-  calls under the hood.
+`==` asks **"do these represent the same value?"** Python tries `list.__eq__(bool)`, gets
+`NotImplemented`, tries the reflected `bool.__eq__(list)`, also `NotImplemented`, and falls
+back to identity — which is `False`. A list is not equal to a boolean, in either direction.
+There's no third answer; both comparisons are just false.
 
-JS's `==` coerces both sides toward numbers: `[]` → `""` → `0`, `false` → `0`, so
-`0 == 0` is `true`. That's why JS produces the genuinely weird **asymmetry** —
-`[] == false` is `true` but `[] == true` is `false`. Python's symmetric `False`/`False` is
-the *less* surprising answer once you stop expecting coercion.
+`bool(x)` asks a different question — **"is this truthy?"** — and it's a conversion, not a
+comparison. It calls `__bool__`, or `__len__` if there's no `__bool__` (which is why empty
+containers are falsy: their length is 0).
 
-**The rule:** use `if x:` when asking "is there anything here?" — that's the normal case.
-Use `if x == value` only when comparing against a specific value. **Never `if x == True`.**
-`ruff` enforces this (E712).
+JS conflates the two because `==` **coerces**: `[]` → `""` → `0`, `false` → `0`, `0 == 0` →
+`true`. That coercion is also why JS is *asymmetric* here — `[] == false` is `true` but
+`[] == true` is `false`. Python refuses to coerce across unrelated types, so it gives the
+boring symmetric answer.
+
+> When do I write `if x:` vs `if x == something`?
+
+- `if x:` — truthiness. **The default.** Use for "is this list non-empty", "did I get a value".
+- `if x == value:` — only when you genuinely care about equality with a specific value.
+- `if x is None:` — identity, for `None` specifically. Never `== None`.
+- **Never `if x == True`.** It asks the wrong question and gives wrong answers for `None`,
+  `""`, `[]` — all of which are falsy but not equal to `False`.
 
 ### `bool` is a subclass of `int`
 
-`True` genuinely **is** `1` and `False` **is** `0`, numerically. `isinstance(True, int)`
-returns `True`. So:
+> Why is `0 == False` True when `[] == False` is False?
 
-- `0 == False` and `1 == True` → `True` (equal numbers)
-- `2 == True` → `False` (2 ≠ 1)
-- `[] == False` → `False` (a list isn't a number at all)
-
-Which is why this works, and it's genuinely useful:
+Because `bool` genuinely inherits from `int`, and `True` *is* the value `1`. So `0 == False`
+and `1 == True` are ordinary numeric equality, not coercion. `isinstance(True, int)` is `True`.
+(But `True is 1` is `False` — equal value, different object.)
 
 ```python
 sum([True, True, False])   # 2
 ```
 
-"How many days completed this week?" is `sum(...)` over booleans — no counter, no loop.
+`sum` just adds ints, and `True` is 1. This makes **counting a one-liner** — no accumulator,
+no `+= 1`:
+
+```python
+# the loop I wrote in completion_rate...
+days_completed = 0
+for check_in in set(check_ins):
+    if start <= check_in <= end:
+        days_completed += 1
+
+# ...is the same as
+days_completed = sum(start <= c <= end for c in set(check_ins))
+```
 
 ### `/` vs `//`
 
 ```python
-7 / 2     # 3.5    true division, ALWAYS returns float
-7 // 2    # 3      floor division, int
-4 / 2     # 2.0    float even when it divides exactly
--7 // 2   # -4     floors toward negative infinity, not toward zero
+7 / 2     # 3.5    true division — ALWAYS a float
+7 // 2    # 3      floor division
+4 / 2     # 2.0    <- still a float, even though it divides evenly
+-7 // 2   # -4     <- floors toward -infinity, does NOT truncate
 ```
 
-JS has one number type, so `/` is always float division and the choice never comes up.
-Python makes you pick per-operator. **The trap:** `4 // 7` is `0`, so a completion rate
-computed with `//` silently reports 0% for everything. And `/` on two ints always yields a
-float, which surfaces in JSON as `2.0` instead of `2`.
+**(mine)** The first three. The trap for a JS dev is that JS has one number type, so `/` never
+surprises you; in Python the operator you pick decides the *type* of the result. `//` returning
+`0` instead of `0.14` is how a completion rate silently becomes 0%.
+
+`-7 // 2` is the subtler one: Python **floors** (`-4`), JS's `Math.trunc(-7/2)` **truncates**
+(`-3`). They differ for negatives.
 
 ### Empty containers are falsy
 
-Falsy: `False`, `None`, `0`, `0.0`, `""`, `[]`, `{}`, `set()`, `()`, `range(0)`.
-Everything else is truthy.
+Falsy in Python: `False`, `None`, `0`, `0.0`, `""`, `[]`, `()`, `{}`, `set()`, `range(0)`, and
+any object whose `__bool__` returns `False` or `__len__` returns `0`. Everything else is truthy.
 
-**Differs from JS:** `[]` and `{}` are **truthy in JS, falsy in Python**. This is the
-inversion most likely to cause a silent bug. `"0"` is truthy in both. JS additionally has
-`NaN` and `undefined`; Python has `None` and no `undefined` at all.
+Differences from JS worth memorizing:
+
+| Value | JS | Python |
+|---|---|---|
+| `[]`, `{}` | **truthy** | **falsy** |
+| `NaN` / `float("nan")` | falsy | **truthy** |
+| `"0"` | truthy | truthy |
+| `undefined` | falsy | *(doesn't exist — only `None`)* |
+
+The `[]`/`{}` row is the one that causes real bugs, because `if (arr)` in JS and `if arr:` in
+Python look identical and mean opposite things for an empty array.
 
 ### f-strings
 
-`f"{x}"` ≈ `` `${x}` ``. The `f` prefix is required; expressions go in braces.
+> Equivalent to what in JS? Why does `f"{h["name"]}"` work on 3.13 but not on 3.11?
 
-```python
-f"{habit['name']}: {streak} day streak"
-f"{rate:.1%}"      # 0.5714 -> '57.1%'   format spec after the colon
-f"{count:>4}"      # right-align in 4 columns
-f"{value=}"        # 'value=42'  — debug shorthand, prints name AND value
-```
+Template literals — `f"..."` ≈ `` `...` ``, and `{expr}` ≈ `${expr}`. Any expression works
+inside the braces.
 
-**Why `f"{h["name"]}"` works on 3.13 but not 3.11:** before PEP 701 (Python 3.12),
-f-string bodies were parsed by a separate mini-parser that couldn't handle the same quote
-character nested inside — it was a `SyntaxError`. 3.12+ parses f-strings with the real
-grammar, so nesting works. Most code online still uses inner single quotes
-(`f"{h['name']}"`) because it had to for twenty years, and that form works everywhere.
+Before Python 3.12, f-strings were tokenized by a separate mini-parser that couldn't handle the
+outer quote character appearing inside the braces — so `f"{h["name"]}"` was a `SyntaxError` and
+everyone wrote `f"{h['name']}"`. **PEP 701** (3.12) made f-strings parse with the normal parser,
+so nested same-quotes, backslashes, and multi-line expressions are all legal now.
+
+Still prefer the inner-single-quote form: it works everywhere, and most code you'll read uses it.
 
 ### `if __name__ == "__main__":`
 
-**`import` in Python RUNS the module** — top to bottom, every top-level statement executes,
-and the result is cached in `sys.modules`. There's no separate "definitions only" mode. ESM
-evaluates a module once too, but you reach it through exported bindings; in Python a bare
-`print()` at module level fires the moment anything imports the file.
+> What is `__name__` set to, and when? What breaks without the guard?
 
-`__name__` is a variable Python sets per module: `"__main__"` when the file is run directly
-(`python foo.py`), otherwise the module's dotted name (`"habits.streaks"`).
+Python has no separate "script" and "module" concepts — the same `.py` file can be run directly
+(`python foo.py`) or imported (`import foo`). `__name__` is how the file tells which happened:
 
-So the guard means **"only when run as a script."** Without it, importing the module prints
-things, runs demos, maybe starts a server. Hence the convention: definitions at the top,
-execution behind the guard at the bottom.
+- run directly → `__name__` is `"__main__"`
+- imported → `__name__` is the module's name, `"foo"`
+
+Importing a module **executes its entire top level**, once, then caches it in `sys.modules`. So
+bare `print(...)` calls at module level fire the moment anything imports the file — including
+`pytest` collecting tests. The guard means "only when run directly."
+
+Convention: **definitions at the top, execution behind the guard at the bottom.**
+
+Node's ESM has the same problem and, since Node 24, the same solution: `import.meta.main`.
+Older code uses `require.main === module` (CJS) or compares `process.argv[1]` to
+`fileURLToPath(import.meta.url)`.
 
 ### Comprehensions
 
 ```python
-# .map(f)             ->  [f(x) for x in xs]
-# .filter(pred)       ->  [x for x in xs if pred(x)]
-# .filter().map()     ->  [f(x) for x in xs if pred(x)]
+[f(x) for x in xs]              # .map(f)
+[x for x in xs if pred(x)]      # .filter(pred)
+[f(x) for x in xs if pred(x)]   # .filter(pred).map(f)   — one pass, not two
+
+{x for x in xs}                 # set comprehension
+{k: v for k, v in pairs}        # dict comprehension
+(f(x) for x in xs)              # generator — lazy, no list allocated
 ```
 
-Also `{k: v for ...}` (dict), `{x for ...}` (set), and `(x for x in ...)` — parentheses
-make it a **generator**, which is lazy and never builds the list.
-
-Idiomatic because it's a single expression with no intermediate list, and it reads in the
-order you'd say it aloud. Past two `for`/`if` clauses, use a real loop — nesting is legal
-but unreadable.
+Idiomatic because it's a single expression producing a value: no accumulator variable, no
+`.append`, nothing half-built to misread. Python has no chainable `.map`/`.filter` on lists —
+this is the replacement, and it fuses filter+map into one pass.
 
 ### Chained comparisons
 
@@ -164,102 +190,101 @@ but unreadable.
 start <= check_in <= end
 ```
 
-Real syntax. Means `start <= check_in and check_in <= end`, and `check_in` is evaluated
-**once**. In JS, `a <= b <= c` parses as `(a <= b) <= c` — a boolean compared to a number,
-coerced to 0/1 — so it's almost always a bug there. Python got this one right.
+Real Python: it means `(start <= check_in) and (check_in <= end)`, with `check_in` evaluated
+**once**.
 
-Using it deleted `days_in_range` entirely: no list of dates needed to ask "is this date in
-the window?"
+In JS this is a bug — `1 <= x <= 3` parses as `(1 <= x) <= 3`, so the boolean gets coerced to
+`0`/`1` and compared to `3`. `1 <= 5 <= 3` evaluates to `true` in JS even though 5 > 3.
 
 ### Picking the data structure
 
-`in` on a **list** is O(n) — a linear scan. `in` on a **set** or **dict** is O(1) — a hash
-lookup.
+> `set` vs `list` for `in`? Which edge cases did the set eliminate for free?
 
-In `current_streak`, one `set(check_ins)` gave three things for free:
+`in` on a `list` is **O(n)** — a linear scan. On a `set` (or `dict` key) it's **O(1)** average,
+because it hashes. For "have I seen this?", always a set.
 
-1. **Dedup** — duplicate check-ins collapse to one
-2. **Order-independence** — no `sorted()` needed
-3. **Fast membership** — O(1) instead of O(n)
+In `current_streak`, `set(check_ins)` + anchoring at `today` killed three edge cases with no
+code written for any of them:
 
-Choosing the right structure made three edge cases *disappear* instead of requiring three
-branches to handle them. That's the general lesson.
+1. **Duplicates** — the set collapses them.
+2. **Unsorted input** — membership doesn't care about order.
+3. **Future-dated check-ins** — walking backwards from `today` never visits them.
 
-Cost: sets are unordered and require hashable elements. `date` is immutable and hashable,
-so it qualifies. `longest_streak` needs order, which is why it sorts.
+My first attempt sorted a list and walked forward, and would have needed explicit handling for
+all three. **Choosing the right structure removes edge cases instead of adding branches.**
 
 ### `itertools.pairwise`
 
-It solves comparing consecutive values in a sequence — it removes the need for an index to
-track state.
-
 ```python
-pairwise([a, b, c])   # -> (a, b), (b, c)
+for prev, day in pairwise(sorted(set(check_ins))):
 ```
 
-Avoids `range(1, len(xs))` plus `xs[i-1]` index arithmetic, which is exactly where
-off-by-ones hide. Lazy: yields pairs as it goes rather than building a list.
+**(mine, sharpened)** It solves comparing consecutive values in a sequence — it yields
+overlapping pairs `(a,b), (b,c), (c,d)`. It removes the manual "remember the previous item"
+bookkeeping and the index arithmetic (`xs[i-1]`), so there's no off-by-one and no way to run off
+the end. On a sequence of 1 it yields nothing, which is exactly right for a streak of 1.
 
 ---
 
 ## The three streak algorithms
 
-Same data, three genuinely different shapes. Recognizing which shape a problem has is most
-of the skill.
+Same data, three shapes. The **anchor** — the fixed point the answer is defined relative to —
+determines the algorithm.
 
-| Function | Anchor | Shape | Why that shape |
+| Function | Anchor | Shape | Why the anchor forces it |
 |---|---|---|---|
-| `current_streak` | `today` — a known endpoint | walk backwards, `while` + set | The run must **end at today**, so start there and step back until the chain breaks. Length is unknown up front → `while`, not `for`. |
-| `longest_streak` | none | sort + scan adjacent pairs | No endpoint to anchor to, so **every** run must be examined. Sorting makes runs contiguous; one `pairwise` pass then finds them. O(n log n). |
-| `completion_rate` | `start` and `end` — both known | no iteration over days at all | The denominator is pure arithmetic on two dates. The numerator only counts check-ins **inside** the window. Iterating the days would be wasted work. |
+| `current_streak` | `today` | walk backwards, `while` + set | "Current" is *defined* relative to today, so you must start there. Length is unknown up front → `while`, not `for`. |
+| `longest_streak` | none | sort + scan adjacent pairs | The run can be anywhere, so every run must be examined. Adjacency requires order → `sorted`. |
+| `completion_rate` | the `[start, end]` window | no day-by-day iteration at all | Denominator is pure arithmetic on the window; numerator is a membership count. Neither needs to walk days. |
 
-Notable: none of these needed a manual index. `sorted`, `set`, `pairwise`, `max`, `sum` did
-the work. Reaching for a built-in before writing index arithmetic is the Pythonic default —
-shorter, and off-by-ones can't hide in code I didn't write.
+The general lesson: **find the anchor first.** It tells you the shape before you write a line.
 
 ---
 
 ## Hard-won lessons
 
 **1. A print is not a test.**
-My `completion_rate` printed six lines of plausible output while returning the wrong number
-**5 times out of 6**. The print was labelled `result:` but printed the *denominator*, and
-the actual return value was never printed by anything. A `print` shows what I *chose* to
-look at; an `assert` checks what the function actually **returns** and cannot be aimed at
-the wrong expression. This is the entire argument for the pytest work in Phase 3.
+`completion_rate` printed plausible output while returning the wrong number 5 times out of 6.
+Printing hid it because a `print` shows what *I chose to display* — and I'd mislabelled the
+denominator as `result`, so the number on screen wasn't even the return value. The `__main__`
+block called the function and discarded what came back. An `assert` compares **actual against
+expected**, can't be mislabelled into looking right, and runs unattended every time.
+*This is the entire argument for pytest in Phase 3.*
 
 **2. `while` loops: I own the advance step.**
-`current_date = today - timedelta(days=1)` recomputed *yesterday* from a fixed anchor every
-pass, so the cursor never moved past it → **infinite loop**. It hung rather than returning
-a wrong answer because the exit condition could never become false. A hang is worse than a
-wrong answer: no traceback, no output, a pinned CPU — and inside a Phase 4 web handler it
-takes out the worker, not just one response. `for x in collection` **cannot** fail this
-way; iteration is driven by the iterator, not by me. So `while` deserves more suspicion.
+`current_date = today - timedelta(days=1)` recomputed the same day forever instead of stepping
+from `current_date`. It **hung** rather than returning a wrong answer, because the condition
+depended on state that stopped changing. A hang is worse than a wrong answer: no traceback, no
+output, a pinned CPU — and in a web handler (Phase 4) it takes down the worker, not just the
+request. A `for` loop can't fail this way: it drains a finite iterator, so termination is
+guaranteed by the iterator protocol rather than by my code. **Prefer `for`; when `while` is
+genuinely needed, check that the loop variable actually advances.**
 
 **3. Dead code still executes.**
-A leftover debug `print` — diagnosing a bug I had *already fixed* — crashed a correct
-function with `ZeroDivisionError` on a single-day range. Deleting scaffolding is part of
-finishing, not tidying. Anything that runs can fail.
+A leftover debug `print` — diagnosing a bug I'd *already fixed* — crashed a correct function
+with `ZeroDivisionError`, because it still had the old buggy expression and a single-day range
+made the divisor 0. **Code isn't dead until it's deleted. Remove the scaffolding as part of
+fixing the bug, not afterwards.**
 
 **4. Duplicated expressions drift.**
-The `(end - start).days + 1` formula existed in two places; I fixed the `return` and missed
-the `print`. The fix that makes this impossible: **compute once, bind to a name, use the
-name.** `denominator = (end - start).days + 1` — then the two can't disagree.
+I fixed the precedence bug in the `return` but not in the `print` above it, because the same
+formula existed twice. The fix that makes this impossible: **compute once, bind to a name, use
+the name.** `denominator = (end - start).days + 1` — then there's only one thing to get right
+and the two uses can't disagree.
 
 **5. Operator precedence.**
-`days_completed / (end - start).days + 1` parses as
-`(days_completed / (end - start).days) + 1` — `/` binds tighter than `+`. It *read* as
-correct because I'd written the intended grouping in a comment, so the parentheses existed
-in my head and not in the code. Same precedence rules as JS; not a Python quirk.
+`days_completed / (end - start).days + 1` parses as `(days_completed / (end - start).days) + 1`
+— `/` binds tighter than `+`. It *read* as correct because I'd been thinking of
+`(end - start).days + 1` as a single unit ("the number of days"). **When an expression is a
+concept in my head, give it a name in the code** — that's lesson 4 again, from the other side.
 
 **6. Passing cases can hide two bugs.**
-`gap of one day` passed while the function was badly broken — an off-by-one and a missing
-consecutiveness check **cancelled each other**. One passing case is evidence of nothing.
-Cases have to vary independently: empty, single, boundary, duplicate, unordered,
-out-of-range.
+My `gap of one day` case passed while `current_streak` was badly broken — an off-by-one and a
+missing consecutiveness check cancelled out. **One passing example proves nothing.** Cases need
+to isolate each dimension: empty, single, boundary, and specifically an input where the two
+suspected bugs would disagree.
 
 **7. Off-by-one: fenceposts.**
-`date - date` gives the **gap** (a `timedelta`), not the count of days spanned. Aug 1 → Aug
-7 is a gap of 6 but **7 days inclusive**. Six fence panels, seven fenceposts. Inclusive
-counts need `+ 1`, and the single-day case (`start == end` → `1`, not `0`) is the one that
-proves it's right.
+**(mine, sharpened)** `(end - start).days` is the *gap* between two dates — the number of
+intervals — and it excludes one endpoint. An inclusive day count needs `+ 1`. Six fenceposts,
+seven panels. Aug 1 → Aug 7 is 7 days, not 6.

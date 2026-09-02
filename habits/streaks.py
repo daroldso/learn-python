@@ -40,4 +40,17 @@ def completion_rate(check_ins, start, end):
 
 
 if __name__ == "__main__":
+    print(current_streak([date(2026, 8, 1), date(2026, 8, 2)], date(2026, 8, 2)))
+    print(
+        longest_streak(
+            [
+                date(2026, 8, 1),
+                date(2026, 8, 2),
+                date(2026, 8, 3),
+                date(2026, 8, 7),
+                date(2026, 8, 10),
+                date(2026, 9, 12),
+            ]
+        )
+    )
     print(completion_rate([], date(2026, 8, 1), date(2026, 8, 7)))
