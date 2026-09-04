@@ -1,8 +1,9 @@
+from collections.abc import Iterable
 from datetime import date, timedelta  # stdlib — no install needed
 from itertools import pairwise
 
 
-def current_streak(check_ins, today):
+def current_streak(check_ins: Iterable[date], today: date) -> int:
     check_ins_set = set(check_ins)
     streak = 0
     current_date = today
@@ -13,12 +14,13 @@ def current_streak(check_ins, today):
     return streak
 
 
-def longest_streak(check_ins):
-    if not check_ins:
+def longest_streak(check_ins: Iterable[date]) -> int:
+    sorted_check_ins = sorted(set(check_ins))
+    if not sorted_check_ins:
         return 0
     longest = 0
     current = 1
-    paired_check_ins = pairwise(sorted(set(check_ins)))
+    paired_check_ins = pairwise(sorted_check_ins)
     for prev, day in paired_check_ins:
         if prev != day - timedelta(days=1):
             longest = max(longest, current)
@@ -29,7 +31,7 @@ def longest_streak(check_ins):
     return longest
 
 
-def completion_rate(check_ins, start, end):
+def completion_rate(check_ins: Iterable[date], start: date, end: date) -> float:
     if start > end:
         return 0.0
     days_completed = 0

@@ -14,6 +14,7 @@ dev = [
 # ─── ruff: linter + formatter (your eslint + prettier, in one Rust binary) ───
 [tool.ruff]
 line-length = 88          # the Black/PEP8 default. Bikeshedding ends here.
+extend-exclude = ["*.md"]  # NOTES.md is prose; keep its example alignment intact.
 target-version = "py313"
 
 [tool.ruff.lint]
@@ -30,7 +31,7 @@ select = [
 [tool.pyright]
 include = ["drills", "habits", "tests"]
 pythonVersion = "3.13"
-typeCheckingMode = "standard"   # raised to "strict" in Phase 2
+typeCheckingMode = "strict"   # raised to "strict" in Phase 2
 
 # ─── pytest ───
 [tool.pytest.ini_options]

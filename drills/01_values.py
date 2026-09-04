@@ -1,19 +1,32 @@
-def count_done(days):
+from typing import TypedDict
+
+
+def count_done(days: list[bool]) -> int:
     return sum(days)
 
 
-def describe(habit):
+class DescribeHabitDict(TypedDict):
+    name: str
+    streak: int
+
+
+def describe(habit: DescribeHabitDict) -> str:
     return f"{habit['name']}: {habit['streak']} day streak"
 
 
-def first_or_none(items):
+def first_or_none(items: list[str]) -> str | None:
     if items:
         return items[0]
     else:
         return None
 
 
-def active_names(habits):
+class HabitDict(TypedDict):
+    name: str
+    archived: bool
+
+
+def active_names(habits: list[HabitDict]) -> list[str]:
     names = [habit["name"] for habit in habits if not habit["archived"]]
     return names
 
@@ -28,8 +41,8 @@ if __name__ == "__main__":
             [
                 {"name": "run", "archived": True},
                 {"name": "walk", "archived": False},
-                {"name": "play", "archived": 0},
-                {"name": "swim", "archived": 1},
+                {"name": "play", "archived": False},
+                {"name": "swim", "archived": True},
             ]
         )
     )
