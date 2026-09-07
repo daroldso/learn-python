@@ -108,3 +108,48 @@ except HabitNotFound:
 ```
 Just call it and let the exception propagate. Catching only to re-raise the same thing adds
 noise and hides the real control flow.
+
+**15. `is` is identity, never a type check.**
+```python
+if self.at is not datetime:      # ALWAYS true. CheckIn could never be constructed.
+    raise ValueError(...)
+```
+`self.at` is a datetime **instance**; `datetime` is the **class object**. Never the same object.
+`is` is correct for `x is None` (there is exactly one `None`) and wrong for essentially
+everything else. A real runtime type check is `isinstance(x, datetime)`.
+
+But the deeper mistake was **asking the wrong question**. Two different questions:
+
+- *"Is this a datetime?"* — a **type** question. pyright already answers it from the `at: datetime`
+  annotation, statically, for free.
+- *"Is this timezone-aware?"* — a **value** question that no type checker can answer, because
+  `datetime` covers both naive and aware instances. There is no `AwareDatetime` in the stdlib.
+
+The check I actually wanted: `if self.at.tzinfo is None`. **Runtime validation earns its keep
+exactly where the type system structurally cannot express the constraint.**
+
+**16. Refactoring silently drops guards.**
+Rewriting `check_in` for the timezone change, I deleted the `self.get_habit(habit_id)` line — so
+`check_in(999, ...)` recorded a check-in against a habit that didn't exist. No error, orphaned
+data. That guard was the entire reason `HabitNotFound` existed.
+
+Nothing caught it because **no test asserted it**. A behaviour with no test isn't a feature, it's
+a coincidence. When rewriting a method, list what it guaranteed before, and check each one
+survives.
+
+**17. A green suite proves nothing by itself.**
+Passing tells me the code works *today*. Only **mutation testing** — reintroducing a bug on
+purpose and confirming red — tells me the suite will catch a regression tomorrow. Five Phase 1
+bugs put back, all five caught; but `start > end` → `>=` was detected by **exactly one test**,
+the single-day range. Drop that row and the bug is invisible again.
+
+**Before trusting a suite, break the code on purpose and confirm it goes red.**
+
+**18. Correct code can still give wrong answers.**
+`current_streak` was correct, fully tested, and told a Tokyo user with a 4-day streak that their
+streak was 0. The function was never wrong — **its inputs were**. 8am JST is 11pm the previous day
+UTC, so every stored day had shifted back one.
+
+Correctness is always relative to the inputs I hand it. When output is wrong but the logic looks
+right, **walk back up the pipeline** — and note the fix belonged in the *store*, not in
+`streaks.py`, because that's the layer that knows about users and timezones.

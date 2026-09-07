@@ -11,6 +11,7 @@ Format throughout: `>` is the question, prose below is the answer.
 | **0** | [How Python runs](notes/phase-0-setup.md) | venvs and why Python needs them, the uv ↔ npm map |
 | **1** | [Syntax, by contrast with JS](notes/phase-1-syntax.md) | truthiness vs equality, `bool` is an `int`, `/` vs `//`, f-strings, `__main__`, comprehensions, chained comparisons, `set` vs `list`, `pairwise`, the three streak algorithms |
 | **2** | [Types, classes, exceptions](notes/phase-2-types-and-classes.md) | hints not enforced at runtime, pyright strict, variance, `TypedDict`, dataclasses, hashability, `__str__` vs `__repr__`, custom exceptions, EAFP, exception chaining, layering |
+| **3** | [Tests, and time](notes/phase-3-tests-and-time.md) | pytest and assertion rewriting, fixtures, `parametrize`, `tmp_path`, mutation testing, naive vs aware datetimes, `zoneinfo`, store-instants/render-days, `pathlib`, JSON boundaries, `@classmethod` |
 | — | [**Hard-won lessons**](notes/lessons.md) | Every bug I actually shipped into my own code, and what I now know. **The reread-me file.** |
 
 ## Quick commands
