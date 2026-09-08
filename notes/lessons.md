@@ -153,3 +153,41 @@ UTC, so every stored day had shifted back one.
 Correctness is always relative to the inputs I hand it. When output is wrong but the logic looks
 right, **walk back up the pipeline** — and note the fix belonged in the *store*, not in
 `streaks.py`, because that's the layer that knows about users and timezones.
+
+**19. A route body runs on every request.**
+`store = HabitStore()` inside each route function built a *fresh empty store per request*. Two
+POSTs both returned `id: 1`; the subsequent `GET` returned `[]`. Nothing was wrong with
+`HabitStore` — **the lifetime was wrong**. A route is a plain function the framework calls per
+request; there is no magic making its locals persist. pyright reported 7 errors in that file and
+none of them were this one: **type checkers verify shapes, not lifetimes.**
+
+**20. Defining a handler is not registering it.**
+I wrote `lifespan`, then wrote `app = FastAPI(title="Habits")` without `lifespan=lifespan`. It
+never ran, `app.state.store` was never set, and the first request died with
+`AttributeError: 'State' object has no attribute 'store'` — **20 lines away from the cause**.
+The code looked complete because the function existed. When a traceback says "this was never
+set", the useful question is *what was supposed to set it*, not *why is this line failing*.
+
+**21. Assigning to a name inside a function makes it local — for the whole function.**
+`store = HabitStore.load(path)` inside `lifespan` created a **new local** and left the
+module-level `store` untouched, silently. *Reading* a module-level name works; *assigning* to it
+does not, unless declared `global`. This is **backwards from JavaScript**, where a bare
+assignment walks outward and creates an accidental global. Python's accident is the opposite: an
+accidental local. Same rule that made `self.id = id` grab the builtin (lesson 10).
+
+**The fix isn't `global` — it's to stop rebinding names.** `app.state.store = ...` is attribute
+assignment on an object, so the scoping rule never applies.
+
+**22. `async` made it 4× slower.**
+Four concurrent requests with a blocking call inside `async def`: **2.03s**. The identical body
+in a plain `def`: **0.54s**. FastAPI runs `async def` on the event loop and plain `def` in a
+threadpool, so blocking inside `async def` stalls every other request in the process.
+**`async` is not "the fast one".** Use it only when the body actually `await`s something;
+blocking work belongs in a plain `def` where the threadpool catches it.
+
+**23. Duplicated error handling diverges — again.**
+Three routes each had `except HabitNotFound: raise HTTPException(404)`. When I added a fourth
+(`/stats`) I forgot it, and unknown habits returned **500** instead of 404 — a client error
+reported as a server error, the kind that pages you at 3am for something a user did. One
+`@app.exception_handler(HabitNotFound)` replaced all of them and covered the route I'd missed.
+Lesson 4 at the framework level: **register the rule once, don't repeat it per call site.**
